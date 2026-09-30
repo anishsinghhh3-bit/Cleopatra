@@ -4,6 +4,7 @@ import chess
 
 from app.core.chess_rules import get_legal_moves
 from app.core.engine import get_best_move
+from app.core.council import council_vote
 
 app = FastAPI(title="Cleopatra API")
 
@@ -25,3 +26,8 @@ def legal_moves(request: FenRequest):
 @app.post("/engine/bestmove")
 def engine_bestmove(request: FenRequest):
     return {"move": get_best_move(request.fen)}
+
+
+@app.post("/council/move")
+def council_move(request: FenRequest):
+    return council_vote(request.fen)
