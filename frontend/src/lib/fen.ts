@@ -30,3 +30,10 @@ export function parseFen(fen: string): BoardGrid {
 
   return grid;
 }
+
+export function getPieceAt(grid: BoardGrid, square: string): PlacedPiece | null {
+  const file = square.charCodeAt(0) - "a".charCodeAt(0);
+  const rank = parseInt(square[1], 10);
+  const rankIndex = 8 - rank;
+  return grid[rankIndex]?.[file] ?? null;
+}

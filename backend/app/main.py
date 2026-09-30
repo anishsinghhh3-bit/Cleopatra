@@ -1,6 +1,7 @@
 ﻿import asyncio
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import chess
 
@@ -10,6 +11,13 @@ from app.core.council import council_vote
 from app.core.game_manager import get_or_create_game
 
 app = FastAPI(title="Cleopatra API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class FenRequest(BaseModel):
@@ -78,13 +86,13 @@ async def play_game(websocket: WebSocket, game_id: str):
 
             board.push(move)
 
+            await websocket.send_json({
+                "type": "human_move_applied",
+                "move": uci,
+                **_state_payload(board),
+            })
+
             if board.is_game_over():
-                await websocket.send_json({
-                    "type": "move_result",
-                    "human_move": uci,
-                    "cleopatra_move": None,
-                    **_state_payload(board),
-                })
                 continue
 
             cleopatra_result = await asyncio.to_thread(council_vote, board.fen())
@@ -92,9 +100,8 @@ async def play_game(websocket: WebSocket, game_id: str):
             board.push(chess.Move.from_uci(cleopatra_uci))
 
             await websocket.send_json({
-                "type": "move_result",
-                "human_move": uci,
-                "cleopatra_move": cleopatra_uci,
+                "type": "cleopatra_move",
+                "move": cleopatra_uci,
                 **_state_payload(board),
             })
 
