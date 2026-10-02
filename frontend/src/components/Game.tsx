@@ -1,6 +1,8 @@
 ﻿import { useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import Board from "./Board";
+import MatchReportView from "./MatchReportView";
+import type { MatchReport } from "./MatchReportView";
 import { parseFen, getPieceAt } from "../lib/fen";
 import { supabase } from "../lib/supabase";
 
@@ -36,6 +38,7 @@ export default function Game({ session }: GameProps) {
   const [error, setError] = useState<string | null>(null);
   const [gameOver, setGameOver] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [matchReport, setMatchReport] = useState<MatchReport | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const pendingHumanMoveRef = useRef<string | null>(null);
 
@@ -67,6 +70,10 @@ export default function Game({ session }: GameProps) {
       setError(null);
       setFen(data.fen);
       setGameOver(data.game_over);
+
+      if (data.match_report) {
+        setMatchReport(data.match_report);
+      }
 
       if (data.type === "human_move_applied") {
         setLastMove({ from: data.move.slice(0, 2), to: data.move.slice(2, 4) });
@@ -165,37 +172,43 @@ export default function Game({ session }: GameProps) {
           {error && <p className="mt-3 text-sm text-signal">{error}</p>}
         </div>
 
-        <aside className="w-64 space-y-10">
-          <section>
-            <h2 className="font-display text-lg text-verdigris">Council</h2>
-            <ul className="mt-3 space-y-2 text-sm">
-              {COUNCIL.map((name) => (
-                <li key={name} className="flex items-center justify-between border-b border-brass/10 pb-2">
-                  <span>{name}</span>
-                  <span className={thinking ? "text-verdigris" : "text-brass/60"}>
-                    {thinking ? "in session" : "quiet"}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </section>
+        <aside className="w-64">
+          {matchReport ? (
+            <MatchReportView report={matchReport} />
+          ) : (
+            <div className="space-y-10">
+              <section>
+                <h2 className="font-display text-lg text-verdigris">Council</h2>
+                <ul className="mt-3 space-y-2 text-sm">
+                  {COUNCIL.map((name) => (
+                    <li key={name} className="flex items-center justify-between border-b border-brass/10 pb-2">
+                      <span>{name}</span>
+                      <span className={thinking ? "text-verdigris" : "text-brass/60"}>
+                        {thinking ? "in session" : "quiet"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
 
-          <section>
-            <h2 className="font-display text-lg text-verdigris">Moves</h2>
-            {moves.length === 0 ? (
-              <p className="mt-3 text-sm text-parchment/50">No moves yet.</p>
-            ) : (
-              <ol className="mt-3 space-y-1 text-sm tabular-nums">
-                {moves.map((round, i) => (
-                  <li key={i} className="flex gap-3">
-                    <span className="text-brass/50">{i + 1}.</span>
-                    <span>{round.human}</span>
-                    <span className="text-parchment">{round.cleopatra ?? ""}</span>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </section>
+              <section>
+                <h2 className="font-display text-lg text-verdigris">Moves</h2>
+                {moves.length === 0 ? (
+                  <p className="mt-3 text-sm text-parchment/50">No moves yet.</p>
+                ) : (
+                  <ol className="mt-3 space-y-1 text-sm tabular-nums">
+                    {moves.map((round, i) => (
+                      <li key={i} className="flex gap-3">
+                        <span className="text-brass/50">{i + 1}.</span>
+                        <span>{round.human}</span>
+                        <span className="text-parchment">{round.cleopatra ?? ""}</span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </section>
+            </div>
+          )}
         </aside>
       </main>
     </div>

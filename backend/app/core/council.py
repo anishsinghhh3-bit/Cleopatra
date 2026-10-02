@@ -1,38 +1,7 @@
 ﻿import chess
 
 from app.core.engine import get_candidates
-
-PIECE_VALUES = {
-    chess.PAWN: 1,
-    chess.KNIGHT: 3,
-    chess.BISHOP: 3,
-    chess.ROOK: 5,
-    chess.QUEEN: 9,
-    chess.KING: 0,
-}
-
-
-def _piece_value(board: chess.Board, square: int) -> int:
-    piece = board.piece_at(square)
-    if piece is None:
-        return 0
-    return PIECE_VALUES[piece.piece_type]
-
-
-def _is_sacrifice(board: chess.Board, move: chess.Move) -> bool:
-    """Heuristic: did we just give up more material on this square than we
-    took, while leaving it under attack? A rough stand-in for a real sacrifice."""
-    mover_value = _piece_value(board, move.from_square)
-    captured_value = _piece_value(board, move.to_square) if board.is_capture(move) else 0
-
-    board_after = board.copy()
-    board_after.push(move)
-
-    opponent = board_after.turn
-    if not board_after.attackers(opponent, move.to_square):
-        return False
-
-    return (mover_value - captured_value) > 1
+from app.core.chess_features import is_sacrifice
 
 
 def _extract_features(board: chess.Board, move: chess.Move, cp_loss: int) -> dict:
@@ -43,7 +12,7 @@ def _extract_features(board: chess.Board, move: chess.Move, cp_loss: int) -> dic
         "cp_loss": cp_loss,
         "is_capture": board.is_capture(move),
         "gives_check": board_after.is_check(),
-        "is_sacrifice": _is_sacrifice(board, move),
+        "is_sacrifice": is_sacrifice(board, move),
         "opponent_mobility": len(list(board_after.legal_moves)),
     }
 

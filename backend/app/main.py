@@ -10,6 +10,7 @@ from app.core.engine import get_best_move
 from app.core.council import council_vote
 from app.core.game_manager import get_or_create_game
 from app.core.auth import verify_token
+from app.core.match_report import generate_match_report
 
 app = FastAPI(title="Cleopatra API")
 
@@ -100,11 +101,15 @@ async def play_game(websocket: WebSocket):
 
             board.push(move)
 
-            await websocket.send_json({
+            human_payload = {
                 "type": "human_move_applied",
                 "move": uci,
                 **_state_payload(board),
-            })
+            }
+            if board.is_game_over():
+                move_list = [m.uci() for m in board.move_stack]
+                human_payload["match_report"] = await asyncio.to_thread(generate_match_report, move_list)
+            await websocket.send_json(human_payload)
 
             if board.is_game_over():
                 continue
@@ -113,11 +118,15 @@ async def play_game(websocket: WebSocket):
             cleopatra_uci = cleopatra_result["move"]
             board.push(chess.Move.from_uci(cleopatra_uci))
 
-            await websocket.send_json({
+            cleopatra_payload = {
                 "type": "cleopatra_move",
                 "move": cleopatra_uci,
                 **_state_payload(board),
-            })
+            }
+            if board.is_game_over():
+                move_list = [m.uci() for m in board.move_stack]
+                cleopatra_payload["match_report"] = await asyncio.to_thread(generate_match_report, move_list)
+            await websocket.send_json(cleopatra_payload)
 
     except WebSocketDisconnect:
         pass
