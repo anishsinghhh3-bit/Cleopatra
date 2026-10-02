@@ -9,6 +9,7 @@ from app.core.chess_rules import get_legal_moves
 from app.core.engine import get_best_move
 from app.core.council import council_vote
 from app.core.game_manager import get_or_create_game
+from app.core.auth import verify_token
 
 app = FastAPI(title="Cleopatra API")
 
@@ -58,9 +59,22 @@ def _state_payload(board: chess.Board) -> dict:
     }
 
 
-@app.websocket("/ws/game/{game_id}")
-async def play_game(websocket: WebSocket, game_id: str):
+@app.websocket("/ws/game")
+async def play_game(websocket: WebSocket):
     await websocket.accept()
+
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=4401)
+        return
+
+    try:
+        claims = verify_token(token)
+    except Exception:
+        await websocket.close(code=4401)
+        return
+
+    game_id = claims["sub"]
     board = get_or_create_game(game_id)
 
     await websocket.send_json({"type": "state", **_state_payload(board)})

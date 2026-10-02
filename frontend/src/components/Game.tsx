@@ -1,8 +1,9 @@
 ﻿import { useEffect, useRef, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 import Board from "./Board";
 import { parseFen, getPieceAt } from "../lib/fen";
+import { supabase } from "../lib/supabase";
 
-const GAME_ID = "demo";
 const STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const COUNCIL = ["Tal", "Fischer", "Botvinnik"];
 
@@ -16,7 +17,17 @@ interface LastMove {
   to: string;
 }
 
-export default function Game() {
+interface Profile {
+  username: string;
+  league: string;
+  rating: number;
+}
+
+interface GameProps {
+  session: Session;
+}
+
+export default function Game({ session }: GameProps) {
   const [fen, setFen] = useState(STARTING_FEN);
   const [selected, setSelected] = useState<string | null>(null);
   const [lastMove, setLastMove] = useState<LastMove | null>(null);
@@ -24,11 +35,23 @@ export default function Game() {
   const [thinking, setThinking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gameOver, setGameOver] = useState(false);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const pendingHumanMoveRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const ws = new WebSocket(`ws://127.0.0.1:8000/ws/game/${GAME_ID}`);
+    supabase
+      .from("profiles")
+      .select("username, league, rating")
+      .eq("id", session.user.id)
+      .single()
+      .then(({ data }) => {
+        if (data) setProfile(data as Profile);
+      });
+  }, [session.user.id]);
+
+  useEffect(() => {
+    const ws = new WebSocket(`ws://127.0.0.1:8000/ws/game?token=${session.access_token}`);
     wsRef.current = ws;
 
     ws.onmessage = (event) => {
@@ -68,10 +91,16 @@ export default function Game() {
       setError("Couldn't reach the server. Is it running?");
     };
 
+    ws.onclose = (event) => {
+      if (event.code === 4401) {
+        setError("Your session expired. Please log in again.");
+      }
+    };
+
     return () => {
       ws.close();
     };
-  }, []);
+  }, [session.access_token]);
 
   function handleSquareClick(square: string) {
     if (thinking || gameOver) return;
@@ -109,7 +138,18 @@ export default function Game() {
     <div className="min-h-screen bg-ink text-parchment font-sans">
       <header className="flex items-center justify-between border-b border-brass/20 px-8 py-5">
         <h1 className="font-display text-2xl tracking-tight">Cleopatra</h1>
-        <span className="text-sm text-brass/80">Tempo &middot; 812</span>
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-brass/80">
+            {profile ? `${profile.league} \u00b7 ${profile.rating}` : "\u2026"}
+          </span>
+          <button
+            type="button"
+            onClick={() => supabase.auth.signOut()}
+            className="text-sm text-brass/60 underline"
+          >
+            Log out
+          </button>
+        </div>
       </header>
 
       <main className="flex flex-wrap items-start justify-center gap-12 px-8 py-12">
@@ -130,10 +170,7 @@ export default function Game() {
             <h2 className="font-display text-lg text-verdigris">Council</h2>
             <ul className="mt-3 space-y-2 text-sm">
               {COUNCIL.map((name) => (
-                <li
-                  key={name}
-                  className="flex items-center justify-between border-b border-brass/10 pb-2"
-                >
+                <li key={name} className="flex items-center justify-between border-b border-brass/10 pb-2">
                   <span>{name}</span>
                   <span className={thinking ? "text-verdigris" : "text-brass/60"}>
                     {thinking ? "in session" : "quiet"}
