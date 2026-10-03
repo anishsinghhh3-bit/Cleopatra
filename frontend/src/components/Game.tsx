@@ -5,6 +5,7 @@ import MatchReportView from "./MatchReportView";
 import type { MatchReport } from "./MatchReportView";
 import { parseFen, getPieceAt } from "../lib/fen";
 import { supabase } from "../lib/supabase";
+import { leagueForRating, formatLeague } from "../lib/league";
 
 const STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const COUNCIL = ["Tal", "Fischer", "Botvinnik"];
@@ -21,8 +22,16 @@ interface LastMove {
 
 interface Profile {
   username: string;
-  league: string;
   rating: number;
+  coins: number;
+}
+
+interface GameResult {
+  result: string;
+  rating_before: number;
+  rating_after: number;
+  coins_earned: number;
+  coins_total: number;
 }
 
 interface GameProps {
@@ -39,13 +48,14 @@ export default function Game({ session }: GameProps) {
   const [gameOver, setGameOver] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [matchReport, setMatchReport] = useState<MatchReport | null>(null);
+  const [gameResult, setGameResult] = useState<GameResult | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const pendingHumanMoveRef = useRef<string | null>(null);
 
   useEffect(() => {
     supabase
       .from("profiles")
-      .select("username, league, rating")
+      .select("username, rating, coins")
       .eq("id", session.user.id)
       .single()
       .then(({ data }) => {
@@ -73,6 +83,13 @@ export default function Game({ session }: GameProps) {
 
       if (data.match_report) {
         setMatchReport(data.match_report);
+      }
+
+      if (data.game_result) {
+        setGameResult(data.game_result);
+        setProfile((prev) =>
+          prev ? { ...prev, rating: data.game_result.rating_after, coins: data.game_result.coins_total } : prev
+        );
       }
 
       if (data.type === "human_move_applied") {
@@ -147,7 +164,9 @@ export default function Game({ session }: GameProps) {
         <h1 className="font-display text-2xl tracking-tight">Cleopatra</h1>
         <div className="flex items-center gap-4">
           <span className="text-sm text-brass/80">
-            {profile ? `${profile.league} \u00b7 ${profile.rating}` : "\u2026"}
+            {profile
+              ? `${formatLeague(leagueForRating(profile.rating))} \u00b7 ${profile.rating} \u00b7 ${profile.coins} coins`
+              : "\u2026"}
           </span>
           <button
             type="button"
@@ -173,6 +192,20 @@ export default function Game({ session }: GameProps) {
         </div>
 
         <aside className="w-64">
+          {gameResult && (
+            <div className="mb-6 border border-brass/30 bg-surface p-4 text-sm">
+              <p className="font-display text-base text-verdigris">
+                {gameResult.result === "win" ? "Victory." : gameResult.result === "loss" ? "Defeat." : "Draw."}
+              </p>
+              <p className="mt-1 text-parchment/80">
+                Rating: {gameResult.rating_before} &rarr; {gameResult.rating_after}
+              </p>
+              {gameResult.coins_earned > 0 && (
+                <p className="text-brass">+{gameResult.coins_earned} coins</p>
+              )}
+            </div>
+          )}
+
           {matchReport ? (
             <MatchReportView report={matchReport} />
           ) : (

@@ -12,6 +12,8 @@ from app.core.game_manager import get_or_create_game
 from app.core.auth import verify_token
 from app.core.match_report import generate_match_report
 from app.core.coach import add_commentary
+from app.core.profiles import get_profile, update_profile
+from app.core.rating import update_rating, coins_for_result
 
 app = FastAPI(title="Cleopatra API")
 
@@ -68,6 +70,34 @@ async def _build_report(board: chess.Board) -> dict:
     return report
 
 
+async def _apply_game_result(user_id: str, board: chess.Board) -> dict | None:
+    outcome = board.outcome()
+    if outcome is None:
+        return None
+
+    if outcome.winner is None:
+        actual_score, result = 0.5, "draw"
+    elif outcome.winner == chess.WHITE:
+        actual_score, result = 1.0, "win"
+    else:
+        actual_score, result = 0.0, "loss"
+
+    profile = await asyncio.to_thread(get_profile, user_id)
+    new_rating = update_rating(profile["rating"], actual_score)
+    coins_earned = coins_for_result(actual_score)
+    new_coins = profile["coins"] + coins_earned
+
+    await asyncio.to_thread(update_profile, user_id, rating=new_rating, coins=new_coins)
+
+    return {
+        "result": result,
+        "rating_before": profile["rating"],
+        "rating_after": new_rating,
+        "coins_earned": coins_earned,
+        "coins_total": new_coins,
+    }
+
+
 @app.websocket("/ws/game")
 async def play_game(websocket: WebSocket):
     await websocket.accept()
@@ -116,6 +146,7 @@ async def play_game(websocket: WebSocket):
             }
             if board.is_game_over():
                 human_payload["match_report"] = await _build_report(board)
+                human_payload["game_result"] = await _apply_game_result(game_id, board)
             await websocket.send_json(human_payload)
 
             if board.is_game_over():
@@ -132,6 +163,7 @@ async def play_game(websocket: WebSocket):
             }
             if board.is_game_over():
                 cleopatra_payload["match_report"] = await _build_report(board)
+                cleopatra_payload["game_result"] = await _apply_game_result(game_id, board)
             await websocket.send_json(cleopatra_payload)
 
     except WebSocketDisconnect:
