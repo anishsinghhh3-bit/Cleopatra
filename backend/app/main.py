@@ -11,6 +11,7 @@ from app.core.council import council_vote
 from app.core.game_manager import get_or_create_game
 from app.core.auth import verify_token
 from app.core.match_report import generate_match_report
+from app.core.coach import add_commentary
 
 app = FastAPI(title="Cleopatra API")
 
@@ -60,6 +61,13 @@ def _state_payload(board: chess.Board) -> dict:
     }
 
 
+async def _build_report(board: chess.Board) -> dict:
+    move_list = [m.uci() for m in board.move_stack]
+    report = await asyncio.to_thread(generate_match_report, move_list)
+    report = await asyncio.to_thread(add_commentary, report)
+    return report
+
+
 @app.websocket("/ws/game")
 async def play_game(websocket: WebSocket):
     await websocket.accept()
@@ -107,8 +115,7 @@ async def play_game(websocket: WebSocket):
                 **_state_payload(board),
             }
             if board.is_game_over():
-                move_list = [m.uci() for m in board.move_stack]
-                human_payload["match_report"] = await asyncio.to_thread(generate_match_report, move_list)
+                human_payload["match_report"] = await _build_report(board)
             await websocket.send_json(human_payload)
 
             if board.is_game_over():
@@ -124,8 +131,7 @@ async def play_game(websocket: WebSocket):
                 **_state_payload(board),
             }
             if board.is_game_over():
-                move_list = [m.uci() for m in board.move_stack]
-                cleopatra_payload["match_report"] = await asyncio.to_thread(generate_match_report, move_list)
+                cleopatra_payload["match_report"] = await _build_report(board)
             await websocket.send_json(cleopatra_payload)
 
     except WebSocketDisconnect:

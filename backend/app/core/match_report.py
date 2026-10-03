@@ -42,25 +42,27 @@ def generate_match_report(moves_uci: list[str]) -> dict:
     board = chess.Board()
     engine = chess.engine.SimpleEngine.popen_uci(ENGINE_PATH)
     evaluations_cp: list[int] = []
+    best_moves: list[str | None] = []
 
     try:
         info = engine.analyse(board, chess.engine.Limit(time=ANALYSIS_TIME))
         evaluations_cp.append(info["score"].pov(chess.WHITE).score(mate_score=100000))
+        best_moves.append(info["pv"][0].uci() if info.get("pv") else None)
 
         for uci in moves_uci:
             board.push(chess.Move.from_uci(uci))
 
             if board.is_checkmate():
-                # Whoever is "to move" here has just been checkmated and lost --
-                # asking the engine to search a position with zero legal moves
-                # is undefined, so we assign the terminal score directly instead.
                 mated_side_is_white = board.turn == chess.WHITE
                 evaluations_cp.append(-100000 if mated_side_is_white else 100000)
+                best_moves.append(None)
             elif board.is_game_over():
                 evaluations_cp.append(0)
+                best_moves.append(None)
             else:
                 info = engine.analyse(board, chess.engine.Limit(time=ANALYSIS_TIME))
                 evaluations_cp.append(info["score"].pov(chess.WHITE).score(mate_score=100000))
+                best_moves.append(info["pv"][0].uci() if info.get("pv") else None)
     finally:
         engine.quit()
 
@@ -72,6 +74,15 @@ def generate_match_report(moves_uci: list[str]) -> dict:
     for i, uci in enumerate(moves_uci):
         mover_is_white = (i % 2 == 0)
         move = chess.Move.from_uci(uci)
+        move_san = replay_board.san(move)
+
+        best_move_uci = best_moves[i]
+        best_move_san = None
+        if best_move_uci and best_move_uci != uci:
+            try:
+                best_move_san = replay_board.san(chess.Move.from_uci(best_move_uci))
+            except ValueError:
+                best_move_san = None
 
         win_before = win_percents[i] if mover_is_white else 100 - win_percents[i]
         win_after = win_percents[i + 1] if mover_is_white else 100 - win_percents[i + 1]
@@ -83,12 +94,13 @@ def generate_match_report(moves_uci: list[str]) -> dict:
 
         move_reports.append({
             "ply": i + 1,
-            "move": uci,
+            "move": move_san,
             "mover": "white" if mover_is_white else "black",
             "eval_cp": evaluations_cp[i + 1],
             "win_diff": round(win_diff, 1),
             "accuracy": round(accuracy, 1),
             "classification": classification,
+            "best_move": best_move_san,
         })
 
         replay_board.push(move)
@@ -113,7 +125,10 @@ def generate_match_report(moves_uci: list[str]) -> dict:
             {
                 "ply": m["ply"],
                 "move": m["move"],
+                "mover": m["mover"],
                 "classification": m["classification"],
+                "best_move": m["best_move"],
+                "win_diff": m["win_diff"],
                 "explanation": (
                     f"{m['mover'].capitalize()} played {m['move']}, losing about "
                     f"{m['win_diff']:.0f} points of win probability."
