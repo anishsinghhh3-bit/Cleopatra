@@ -36,9 +36,11 @@ interface GameResult {
 
 interface GameProps {
   session: Session;
+  onNavigateLegacy: () => void;
+  onNavigateLegacy: () => void;
 }
 
-export default function Game({ session }: GameProps) {
+export default function Game({ session, onNavigateLegacy }: GameProps) {
   const [fen, setFen] = useState(STARTING_FEN);
   const [selected, setSelected] = useState<string | null>(null);
   const [lastMove, setLastMove] = useState<LastMove | null>(null);
@@ -168,6 +170,9 @@ export default function Game({ session }: GameProps) {
               ? `${formatLeague(leagueForRating(profile.rating))} \u00b7 ${profile.rating} \u00b7 ${profile.coins} coins`
               : "\u2026"}
           </span>
+          <button type="button" onClick={onNavigateLegacy} className="text-sm text-brass/60 underline">
+            Legacy AI
+          </button>
           <button
             type="button"
             onClick={() => supabase.auth.signOut()}
@@ -247,3 +252,4 @@ export default function Game({ session }: GameProps) {
     </div>
   );
 }
+
