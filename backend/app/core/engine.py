@@ -8,14 +8,23 @@ BACKEND_DIR = CORE_DIR.parent.parent
 ENGINE_PATH = str(BACKEND_DIR / "engine" / "stockfish.exe")
 
 DEFAULT_ELO = 2800
+MIN_SAFE_ELO = 1350
+MAX_SAFE_ELO = 2850
+
+
+def _safe_elo(elo: int) -> int:
+    """Stockfish's UCI_Elo option only accepts a limited range; ratings in this
+    app can in principle drift outside it (a very low-rated player, or a
+    personal AI trained from one), so we clamp before handing the number to
+    the engine rather than risk it rejecting the option outright."""
+    return max(MIN_SAFE_ELO, min(MAX_SAFE_ELO, elo))
 
 
 def get_best_move(fen: str, elo: int = DEFAULT_ELO, think_time: float = 1.0) -> str:
-    """Ask Stockfish, capped to a human-elite Elo, for its single best move in this position."""
     board = chess.Board(fen)
     engine = chess.engine.SimpleEngine.popen_uci(ENGINE_PATH)
     try:
-        engine.configure({"UCI_LimitStrength": True, "UCI_Elo": elo})
+        engine.configure({"UCI_LimitStrength": True, "UCI_Elo": _safe_elo(elo)})
         result = engine.play(board, chess.engine.Limit(time=think_time))
         return result.move.uci()
     finally:
@@ -28,12 +37,10 @@ def get_candidates(
     elo: int = DEFAULT_ELO,
     think_time: float = 1.0,
 ) -> list[tuple[chess.Move, int]]:
-    """Ask Stockfish, capped to a human-elite Elo, for its top `count` candidate
-    moves in this position, each paired with its centipawn score (mover's POV)."""
     board = chess.Board(fen)
     engine = chess.engine.SimpleEngine.popen_uci(ENGINE_PATH)
     try:
-        engine.configure({"UCI_LimitStrength": True, "UCI_Elo": elo})
+        engine.configure({"UCI_LimitStrength": True, "UCI_Elo": _safe_elo(elo)})
         info_list = engine.analyse(board, chess.engine.Limit(time=think_time), multipv=count)
         candidates = []
         for info in info_list:

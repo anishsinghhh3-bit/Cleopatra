@@ -6,6 +6,7 @@ import type { MatchReport } from "./MatchReportView";
 import { parseFen, getPieceAt } from "../lib/fen";
 import { supabase } from "../lib/supabase";
 import { leagueForRating, formatLeague } from "../lib/league";
+import type { Profile } from "../lib/types";
 
 const STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const COUNCIL = ["Tal", "Fischer", "Botvinnik"];
@@ -20,12 +21,6 @@ interface LastMove {
   to: string;
 }
 
-interface Profile {
-  username: string;
-  rating: number;
-  coins: number;
-}
-
 interface GameResult {
   result: string;
   rating_before: number;
@@ -36,11 +31,12 @@ interface GameResult {
 
 interface GameProps {
   session: Session;
-  onNavigateLegacy: () => void;
+  profile: Profile | null;
+  onProfileChange: (updates: Partial<Profile>) => void;
   onNavigateLegacy: () => void;
 }
 
-export default function Game({ session, onNavigateLegacy }: GameProps) {
+export default function Game({ session, profile, onProfileChange, onNavigateLegacy }: GameProps) {
   const [fen, setFen] = useState(STARTING_FEN);
   const [selected, setSelected] = useState<string | null>(null);
   const [lastMove, setLastMove] = useState<LastMove | null>(null);
@@ -48,22 +44,10 @@ export default function Game({ session, onNavigateLegacy }: GameProps) {
   const [thinking, setThinking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gameOver, setGameOver] = useState(false);
-  const [profile, setProfile] = useState<Profile | null>(null);
   const [matchReport, setMatchReport] = useState<MatchReport | null>(null);
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const pendingHumanMoveRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    supabase
-      .from("profiles")
-      .select("username, rating, coins")
-      .eq("id", session.user.id)
-      .single()
-      .then(({ data }) => {
-        if (data) setProfile(data as Profile);
-      });
-  }, [session.user.id]);
 
   useEffect(() => {
     const ws = new WebSocket(`ws://127.0.0.1:8000/ws/game?token=${session.access_token}`);
@@ -89,9 +73,11 @@ export default function Game({ session, onNavigateLegacy }: GameProps) {
 
       if (data.game_result) {
         setGameResult(data.game_result);
-        setProfile((prev) =>
-          prev ? { ...prev, rating: data.game_result.rating_after, coins: data.game_result.coins_total } : prev
-        );
+        onProfileChange({ rating: data.game_result.rating_after, coins: data.game_result.coins_total });
+      }
+
+      if (data.type === "state") {
+        return;
       }
 
       if (data.type === "human_move_applied") {
@@ -158,6 +144,16 @@ export default function Game({ session, onNavigateLegacy }: GameProps) {
     setThinking(true);
   }
 
+  function handleNewGame() {
+    wsRef.current?.send(JSON.stringify({ type: "new_game" }));
+    setMoves([]);
+    setMatchReport(null);
+    setGameResult(null);
+    setLastMove(null);
+    setSelected(null);
+    setError(null);
+  }
+
   const statusText = gameOver ? "Game over." : thinking ? "Cleopatra is thinking\u2026" : "Your move.";
 
   return (
@@ -167,7 +163,7 @@ export default function Game({ session, onNavigateLegacy }: GameProps) {
         <div className="flex items-center gap-4">
           <span className="text-sm text-brass/80">
             {profile
-              ? `${formatLeague(leagueForRating(profile.rating))} \u00b7 ${profile.rating} \u00b7 ${profile.coins} coins`
+              ? `${formatLeague(leagueForRating(profile.rating + profile.legacy_points))} \u00b7 ${profile.rating} \u00b7 ${profile.coins} coins`
               : "\u2026"}
           </span>
           <button type="button" onClick={onNavigateLegacy} className="text-sm text-brass/60 underline">
@@ -185,14 +181,31 @@ export default function Game({ session, onNavigateLegacy }: GameProps) {
 
       <main className="flex flex-wrap items-start justify-center gap-12 px-8 py-12">
         <div>
-          <p
-            className={`mb-3 font-display text-lg ${
-              gameOver ? "text-verdigris" : thinking ? "animate-pulse text-verdigris" : "text-parchment"
-            }`}
-          >
-            {statusText}
-          </p>
-          <Board fen={fen} selectedSquare={selected} lastMove={lastMove} onSquareClick={handleSquareClick} />
+          <div className="mb-3 flex items-center gap-4">
+            <p
+              className={`font-display text-lg ${
+                gameOver ? "text-verdigris" : thinking ? "animate-pulse text-verdigris" : "text-parchment"
+              }`}
+            >
+              {statusText}
+            </p>
+            {gameOver && (
+              <button
+                type="button"
+                onClick={handleNewGame}
+                className="bg-verdigris px-3 py-1 text-xs font-medium text-ink"
+              >
+                Play again
+              </button>
+            )}
+          </div>
+          <Board
+            fen={fen}
+            selectedSquare={selected}
+            lastMove={lastMove}
+            onSquareClick={handleSquareClick}
+            disabled={thinking}
+          />
           {error && <p className="mt-3 text-sm text-signal">{error}</p>}
         </div>
 
@@ -252,4 +265,3 @@ export default function Game({ session, onNavigateLegacy }: GameProps) {
     </div>
   );
 }
-

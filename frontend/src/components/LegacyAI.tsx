@@ -19,11 +19,12 @@ interface LobbyEntry {
 
 interface LegacyAIProps {
   session: Session;
+  visible: boolean;
   onBack: () => void;
   onChallenge: (aiId: string) => void;
 }
 
-export default function LegacyAI({ session, onBack, onChallenge }: LegacyAIProps) {
+export default function LegacyAI({ session, visible, onBack, onChallenge }: LegacyAIProps) {
   const [myAi, setMyAi] = useState<PersonalAI | null>(null);
   const [winsRequired, setWinsRequired] = useState(5);
   const [myWins, setMyWins] = useState<number | null>(null);
@@ -46,9 +47,11 @@ export default function LegacyAI({ session, onBack, onChallenge }: LegacyAIProps
   }
 
   useEffect(() => {
-    refresh();
+    if (visible) {
+      refresh();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [visible]);
 
   async function handleCreate() {
     setBusy(true);

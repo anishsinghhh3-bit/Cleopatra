@@ -17,5 +17,8 @@ def coins_for_result(actual_score: float) -> int:
     return 5 if actual_score == 1.0 else 0
 
 
-def legacy_rating_delta(ai_won: bool) -> float:
+def legacy_points_delta(ai_won: bool) -> float:
+    """Small nudge to a personal AI owner's league points -- deliberately
+    separate from Elo rating, since it should move league placement a little
+    without corrupting the number used for actual matchmaking fairness."""
     return 1.0 if ai_won else -0.5

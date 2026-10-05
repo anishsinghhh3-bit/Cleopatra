@@ -8,12 +8,12 @@ import chess
 from app.core.chess_rules import get_legal_moves
 from app.core.engine import get_best_move
 from app.core.council import council_vote
-from app.core.game_manager import get_or_create_game, game_exists
+from app.core.game_manager import get_or_create_game, game_exists, reset_game
 from app.core.auth import verify_token
 from app.core.match_report import generate_match_report
 from app.core.coach import add_commentary
 from app.core.profiles import get_profile, update_profile
-from app.core.rating import update_rating, coins_for_result, legacy_rating_delta
+from app.core.rating import update_rating, coins_for_result, legacy_points_delta
 from app.core.personal_ai import (
     get_personal_ai,
     get_personal_ai_by_id,
@@ -32,7 +32,7 @@ app = FastAPI(title="Cleopatra API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://localhost:4173"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -135,16 +135,9 @@ async def _build_report(board: chess.Board) -> dict:
     return report
 
 
-async def _receive_and_apply_human_move(websocket: WebSocket, board: chess.Board) -> str | None:
-    """Receives one message, validates it as a legal move, and applies it.
-    Returns the UCI string applied, or None if the message was invalid
-    (an error has already been sent; the caller should just loop again)."""
-    data = await websocket.receive_json()
-
-    if data.get("type") != "move":
-        await websocket.send_json({"type": "error", "message": "Unknown message type."})
-        return None
-
+async def _apply_move_or_error(websocket: WebSocket, board: chess.Board, data: dict) -> str | None:
+    """Validates and applies a move from an already-received message dict.
+    Returns the UCI string applied, or None if invalid (an error has already been sent)."""
     uci = data.get("uci", "")
     try:
         move = chess.Move.from_uci(uci)
@@ -207,21 +200,26 @@ async def _apply_challenge_result(challenger_id: str, ai: dict, board: chess.Boa
 
     new_challenger_rating = update_rating(challenger_profile["rating"], actual_score, ai["strength_rating"])
 
-    coins_delta = 0
     bank_delta = 0
+    stored_coins_change = 0  # applied on top of the already-staked balance
+    net_coins_change = 0     # relative to the balance BEFORE the stake -- what the UI shows
     badge_earned = False
+    new_wins = challenger_profile.get("wins", 0)
 
     if actual_score == 1.0:
-        coins_delta = CHALLENGE_STAKE * 2  # stake back + winnings from the AI's bank
+        stored_coins_change = CHALLENGE_STAKE * 2  # stake back + winnings from the AI's bank
+        net_coins_change = CHALLENGE_STAKE
         bank_delta = -CHALLENGE_STAKE
         badge_earned = True
+        new_wins += 1
     elif actual_score == 0.0:
+        net_coins_change = -CHALLENGE_STAKE
         bank_delta = CHALLENGE_STAKE  # forfeited stake moves into the AI's bank
     else:
-        coins_delta = CHALLENGE_STAKE  # draw: stake refunded, nothing else moves
+        stored_coins_change = CHALLENGE_STAKE  # draw: stake refunded, nothing else moves
 
-    new_coins = challenger_profile["coins"] + coins_delta
-    updates = {"rating": new_challenger_rating, "coins": new_coins}
+    new_coins = challenger_profile["coins"] + stored_coins_change
+    updates = {"rating": new_challenger_rating, "coins": new_coins, "wins": new_wins}
     if badge_earned:
         updates["badge_ai_slayer"] = True
     await asyncio.to_thread(update_profile, challenger_id, **updates)
@@ -231,8 +229,8 @@ async def _apply_challenge_result(challenger_id: str, ai: dict, board: chess.Boa
 
     if actual_score != 0.5:
         ai_won = actual_score == 0.0
-        new_owner_rating = max(0, round(owner_profile["rating"] + legacy_rating_delta(ai_won)))
-        await asyncio.to_thread(update_profile, ai["owner_id"], rating=new_owner_rating)
+        new_owner_legacy_points = owner_profile["legacy_points"] + legacy_points_delta(ai_won)
+        await asyncio.to_thread(update_profile, ai["owner_id"], legacy_points=new_owner_legacy_points)
 
     await asyncio.to_thread(record_challenge, challenger_id, ai["id"], actual_score == 1.0)
 
@@ -240,7 +238,7 @@ async def _apply_challenge_result(challenger_id: str, ai: dict, board: chess.Boa
         "result": result,
         "rating_before": challenger_profile["rating"],
         "rating_after": new_challenger_rating,
-        "coins_delta": coins_delta - CHALLENGE_STAKE,
+        "coins_delta": net_coins_change,
         "coins_total": new_coins,
         "badge_earned": badge_earned,
     }
@@ -268,7 +266,22 @@ async def play_game(websocket: WebSocket):
 
     try:
         while True:
-            uci = await _receive_and_apply_human_move(websocket, board)
+            data = await websocket.receive_json()
+            msg_type = data.get("type")
+
+            if msg_type == "new_game":
+                if not board.is_game_over():
+                    await websocket.send_json({"type": "error", "message": "Finish the current game first."})
+                    continue
+                board = reset_game(game_id)
+                await websocket.send_json({"type": "state", **_state_payload(board)})
+                continue
+
+            if msg_type != "move":
+                await websocket.send_json({"type": "error", "message": "Unknown message type."})
+                continue
+
+            uci = await _apply_move_or_error(websocket, board, data)
             if uci is None:
                 continue
 
@@ -361,7 +374,12 @@ async def play_challenge(websocket: WebSocket, ai_id: str):
 
     try:
         while True:
-            uci = await _receive_and_apply_human_move(websocket, board)
+            data = await websocket.receive_json()
+            if data.get("type") != "move":
+                await websocket.send_json({"type": "error", "message": "Unknown message type."})
+                continue
+
+            uci = await _apply_move_or_error(websocket, board, data)
             if uci is None:
                 continue
 

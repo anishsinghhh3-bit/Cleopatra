@@ -20,7 +20,7 @@ def get_profile(user_id: str) -> dict:
     response = requests.get(
         f"{SUPABASE_URL}/rest/v1/profiles",
         headers=HEADERS,
-        params={"id": f"eq.{user_id}", "select": "coins,rating,wins"},
+        params={"id": f"eq.{user_id}", "select": "coins,rating,wins,legacy_points"},
         timeout=10,
     )
     response.raise_for_status()
@@ -41,4 +41,3 @@ def update_profile(user_id: str, **fields) -> dict:
     response.raise_for_status()
     rows = response.json()
     return rows[0] if rows else {}
-

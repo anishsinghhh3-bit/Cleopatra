@@ -4,6 +4,7 @@ import Board from "./Board";
 import MatchReportView from "./MatchReportView";
 import type { MatchReport } from "./MatchReportView";
 import { parseFen, getPieceAt } from "../lib/fen";
+import type { Profile } from "../lib/types";
 
 const STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -28,10 +29,11 @@ interface ChallengeResult {
 interface ChallengeGameProps {
   session: Session;
   aiId: string;
+  onProfileChange: (updates: Partial<Profile>) => void;
   onBack: () => void;
 }
 
-export default function ChallengeGame({ session, aiId, onBack }: ChallengeGameProps) {
+export default function ChallengeGame({ session, aiId, onProfileChange, onBack }: ChallengeGameProps) {
   const [fen, setFen] = useState(STARTING_FEN);
   const [selected, setSelected] = useState<string | null>(null);
   const [lastMove, setLastMove] = useState<LastMove | null>(null);
@@ -63,7 +65,10 @@ export default function ChallengeGame({ session, aiId, onBack }: ChallengeGamePr
       if (data.game_over !== undefined) setGameOver(data.game_over);
       if (data.opponent_rating !== undefined) setOpponentRating(data.opponent_rating);
       if (data.match_report) setMatchReport(data.match_report);
-      if (data.challenge_result) setChallengeResult(data.challenge_result);
+      if (data.challenge_result) {
+        setChallengeResult(data.challenge_result);
+        onProfileChange({ rating: data.challenge_result.rating_after, coins: undefined as unknown as number });
+      }
 
       if (data.type === "human_move_applied") {
         setLastMove({ from: data.move.slice(0, 2), to: data.move.slice(2, 4) });
@@ -137,7 +142,13 @@ export default function ChallengeGame({ session, aiId, onBack }: ChallengeGamePr
           >
             {statusText}
           </p>
-          <Board fen={fen} selectedSquare={selected} lastMove={lastMove} onSquareClick={handleSquareClick} />
+          <Board
+            fen={fen}
+            selectedSquare={selected}
+            lastMove={lastMove}
+            onSquareClick={handleSquareClick}
+            disabled={thinking}
+          />
           {error && <p className="mt-3 text-sm text-signal">{error}</p>}
         </div>
 

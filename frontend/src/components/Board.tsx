@@ -16,13 +16,18 @@ interface BoardProps {
   selectedSquare?: string | null;
   lastMove?: { from: string; to: string } | null;
   onSquareClick?: (square: string) => void;
+  disabled?: boolean;
 }
 
-export default function Board({ fen, selectedSquare, lastMove, onSquareClick }: BoardProps) {
+export default function Board({ fen, selectedSquare, lastMove, onSquareClick, disabled }: BoardProps) {
   const grid = parseFen(fen);
 
   return (
-    <div className="inline-grid grid-cols-8 border-2 border-brass/60 shadow-lg">
+    <div
+      className={`inline-grid grid-cols-8 border-2 border-brass/60 shadow-lg transition-opacity ${
+        disabled ? "pointer-events-none opacity-70" : ""
+      }`}
+    >
       {grid.map((rank, rankIndex) =>
         rank.map((square, fileIndex) => {
           const isLight = (rankIndex + fileIndex) % 2 === 0;

@@ -15,19 +15,20 @@ export interface League {
 }
 
 export function leagueForRating(rating: number): League {
+  const clamped = Math.max(0, rating);
   for (const [name, low, high] of LEAGUE_TIERS) {
-    if (high !== null && rating > high) continue;
-    if (rating < low) continue;
+    if (high !== null && clamped > high) continue;
+    if (clamped < low) continue;
     if (name === "Immortal") {
       return { tier: name, subRank: null };
     }
     const span = (high as number) - low + 1;
     const third = span / 3;
-    const position = rating - low;
+    const position = clamped - low;
     const subRank = position < third ? 1 : position < 2 * third ? 2 : 3;
     return { tier: name, subRank };
   }
-  return { tier: "Immortal", subRank: null };
+  return { tier: "Tempo", subRank: 1 };
 }
 
 export function formatLeague(league: League): string {
