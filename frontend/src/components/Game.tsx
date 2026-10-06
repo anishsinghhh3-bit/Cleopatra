@@ -163,7 +163,7 @@ export default function Game({ session, profile, onProfileChange, onNavigateLega
         <div className="flex items-center gap-4">
           <span className="text-sm text-brass/80">
             {profile
-              ? `${formatLeague(leagueForRating(profile.rating + profile.legacy_points))} \u00b7 ${profile.rating} \u00b7 ${profile.coins} coins`
+              ? `${formatLeague(leagueForRating(profile.rating + profile.legacy_points))} \u00b7 ${profile.rating} \u00b7 ${profile.coins} coins${profile.badge_ai_slayer ? " \u00b7 \u2694 AI Slayer" : ""}`
               : "\u2026"}
           </span>
           <button type="button" onClick={onNavigateLegacy} className="text-sm text-brass/60 underline">
@@ -265,3 +265,4 @@ export default function Game({ session, profile, onProfileChange, onNavigateLega
     </div>
   );
 }
+

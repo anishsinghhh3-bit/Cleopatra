@@ -34,7 +34,7 @@ export default function App() {
     }
     supabase
       .from("profiles")
-      .select("username, rating, coins, legacy_points")
+      .select("username, rating, coins, legacy_points, badge_ai_slayer")
       .eq("id", session.user.id)
       .single()
       .then(({ data }) => {
@@ -98,3 +98,4 @@ export default function App() {
     </>
   );
 }
+

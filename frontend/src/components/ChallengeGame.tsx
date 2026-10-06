@@ -23,6 +23,7 @@ interface ChallengeResult {
   rating_before: number;
   rating_after: number;
   coins_delta: number;
+  coins_total: number;
   badge_earned: boolean;
 }
 
@@ -67,7 +68,10 @@ export default function ChallengeGame({ session, aiId, onProfileChange, onBack }
       if (data.match_report) setMatchReport(data.match_report);
       if (data.challenge_result) {
         setChallengeResult(data.challenge_result);
-        onProfileChange({ rating: data.challenge_result.rating_after, coins: undefined as unknown as number });
+        onProfileChange({
+          rating: data.challenge_result.rating_after,
+          coins: data.challenge_result.coins_total,
+        });
       }
 
       if (data.type === "human_move_applied") {

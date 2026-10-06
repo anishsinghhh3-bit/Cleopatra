@@ -3,4 +3,5 @@
   rating: number;
   coins: number;
   legacy_points: number;
+  badge_ai_slayer: boolean;
 }

@@ -14,6 +14,7 @@ from app.core.match_report import generate_match_report
 from app.core.coach import add_commentary
 from app.core.profiles import get_profile, update_profile
 from app.core.rating import update_rating, coins_for_result, legacy_points_delta
+from app.core.locks import get_user_lock
 from app.core.personal_ai import (
     get_personal_ai,
     get_personal_ai_by_id,
@@ -136,8 +137,6 @@ async def _build_report(board: chess.Board) -> dict:
 
 
 async def _apply_move_or_error(websocket: WebSocket, board: chess.Board, data: dict) -> str | None:
-    """Validates and applies a move from an already-received message dict.
-    Returns the UCI string applied, or None if invalid (an error has already been sent)."""
     uci = data.get("uci", "")
     try:
         move = chess.Move.from_uci(uci)
@@ -165,13 +164,14 @@ async def _apply_game_result(user_id: str, board: chess.Board) -> dict | None:
     else:
         actual_score, result = 0.0, "loss"
 
-    profile = await asyncio.to_thread(get_profile, user_id)
-    new_rating = update_rating(profile["rating"], actual_score)
-    coins_earned = coins_for_result(actual_score)
-    new_coins = profile["coins"] + coins_earned
-    new_wins = profile.get("wins", 0) + (1 if actual_score == 1.0 else 0)
+    async with get_user_lock(user_id):
+        profile = await asyncio.to_thread(get_profile, user_id)
+        new_rating = update_rating(profile["rating"], actual_score)
+        coins_earned = coins_for_result(actual_score)
+        new_coins = profile["coins"] + coins_earned
+        new_wins = profile.get("wins", 0) + (1 if actual_score == 1.0 else 0)
 
-    await asyncio.to_thread(update_profile, user_id, rating=new_rating, coins=new_coins, wins=new_wins)
+        await asyncio.to_thread(update_profile, user_id, rating=new_rating, coins=new_coins, wins=new_wins)
 
     return {
         "result": result,
@@ -195,39 +195,40 @@ async def _apply_challenge_result(challenger_id: str, ai: dict, board: chess.Boa
     else:
         actual_score, result = 0.0, "loss"
 
-    challenger_profile = await asyncio.to_thread(get_profile, challenger_id)
-    owner_profile = await asyncio.to_thread(get_profile, ai["owner_id"])
+    async with get_user_lock(challenger_id):
+        challenger_profile = await asyncio.to_thread(get_profile, challenger_id)
 
-    new_challenger_rating = update_rating(challenger_profile["rating"], actual_score, ai["strength_rating"])
+        new_challenger_rating = update_rating(challenger_profile["rating"], actual_score, ai["strength_rating"])
 
-    bank_delta = 0
-    stored_coins_change = 0  # applied on top of the already-staked balance
-    net_coins_change = 0     # relative to the balance BEFORE the stake -- what the UI shows
-    badge_earned = False
-    new_wins = challenger_profile.get("wins", 0)
+        bank_delta = 0
+        stored_coins_change = 0  # applied on top of the already-staked balance
+        net_coins_change = 0     # relative to the balance BEFORE the stake -- what the UI shows
+        badge_earned = False
+        new_wins = challenger_profile.get("wins", 0)
 
-    if actual_score == 1.0:
-        stored_coins_change = CHALLENGE_STAKE * 2  # stake back + winnings from the AI's bank
-        net_coins_change = CHALLENGE_STAKE
-        bank_delta = -CHALLENGE_STAKE
-        badge_earned = True
-        new_wins += 1
-    elif actual_score == 0.0:
-        net_coins_change = -CHALLENGE_STAKE
-        bank_delta = CHALLENGE_STAKE  # forfeited stake moves into the AI's bank
-    else:
-        stored_coins_change = CHALLENGE_STAKE  # draw: stake refunded, nothing else moves
+        if actual_score == 1.0:
+            stored_coins_change = CHALLENGE_STAKE * 2
+            net_coins_change = CHALLENGE_STAKE
+            bank_delta = -CHALLENGE_STAKE
+            badge_earned = True
+            new_wins += 1
+        elif actual_score == 0.0:
+            net_coins_change = -CHALLENGE_STAKE
+            bank_delta = CHALLENGE_STAKE
+        else:
+            stored_coins_change = CHALLENGE_STAKE
 
-    new_coins = challenger_profile["coins"] + stored_coins_change
-    updates = {"rating": new_challenger_rating, "coins": new_coins, "wins": new_wins}
-    if badge_earned:
-        updates["badge_ai_slayer"] = True
-    await asyncio.to_thread(update_profile, challenger_id, **updates)
+        new_coins = challenger_profile["coins"] + stored_coins_change
+        updates = {"rating": new_challenger_rating, "coins": new_coins, "wins": new_wins}
+        if badge_earned:
+            updates["badge_ai_slayer"] = True
+        await asyncio.to_thread(update_profile, challenger_id, **updates)
 
     if bank_delta != 0:
         await asyncio.to_thread(adjust_ai_bank, ai["id"], bank_delta)
 
     if actual_score != 0.5:
+        owner_profile = await asyncio.to_thread(get_profile, ai["owner_id"])
         ai_won = actual_score == 0.0
         new_owner_legacy_points = owner_profile["legacy_points"] + legacy_points_delta(ai_won)
         await asyncio.to_thread(update_profile, ai["owner_id"], legacy_points=new_owner_legacy_points)
@@ -341,27 +342,29 @@ async def play_challenge(websocket: WebSocket, ai_id: str):
 
     if is_new_challenge:
         owner_profile = await asyncio.to_thread(get_profile, ai["owner_id"])
-        challenger_profile = await asyncio.to_thread(get_profile, challenger_id)
 
-        if abs(challenger_profile["rating"] - owner_profile["rating"]) > RATING_BAND:
-            await websocket.send_json({
-                "type": "error",
-                "message": f"This AI is outside your rating range (owner is {owner_profile['rating']}, you're {challenger_profile['rating']}).",
-            })
-            await websocket.close(code=4403)
-            return
+        async with get_user_lock(challenger_id):
+            challenger_profile = await asyncio.to_thread(get_profile, challenger_id)
 
-        if await asyncio.to_thread(is_on_cooldown, challenger_id, ai_id):
-            await websocket.send_json({"type": "error", "message": "You've already challenged this AI in the last 24 hours."})
-            await websocket.close(code=4403)
-            return
+            if abs(challenger_profile["rating"] - owner_profile["rating"]) > RATING_BAND:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": f"This AI is outside your rating range (owner is {owner_profile['rating']}, you're {challenger_profile['rating']}).",
+                })
+                await websocket.close(code=4403)
+                return
 
-        if challenger_profile["coins"] < CHALLENGE_STAKE:
-            await websocket.send_json({"type": "error", "message": f"You need at least {CHALLENGE_STAKE} coins to challenge."})
-            await websocket.close(code=4402)
-            return
+            if await asyncio.to_thread(is_on_cooldown, challenger_id, ai_id):
+                await websocket.send_json({"type": "error", "message": "You've already challenged this AI in the last 24 hours."})
+                await websocket.close(code=4403)
+                return
 
-        await asyncio.to_thread(update_profile, challenger_id, coins=challenger_profile["coins"] - CHALLENGE_STAKE)
+            if challenger_profile["coins"] < CHALLENGE_STAKE:
+                await websocket.send_json({"type": "error", "message": f"You need at least {CHALLENGE_STAKE} coins to challenge."})
+                await websocket.close(code=4402)
+                return
+
+            await asyncio.to_thread(update_profile, challenger_id, coins=challenger_profile["coins"] - CHALLENGE_STAKE)
 
     board = get_or_create_game(game_id)
 

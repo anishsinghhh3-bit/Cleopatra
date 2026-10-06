@@ -35,15 +35,28 @@ export default function LegacyAI({ session, visible, onBack, onChallenge }: Lega
   const authHeaders = { Authorization: `Bearer ${session.access_token}` };
 
   async function refresh() {
-    const mineRes = await fetch(`${API_BASE}/personal-ai/mine`, { headers: authHeaders });
-    const mineData = await mineRes.json();
-    setMyAi(mineData.ai);
-    setWinsRequired(mineData.wins_required);
-    setMyWins(mineData.wins);
+    try {
+      const mineRes = await fetch(`${API_BASE}/personal-ai/mine`, { headers: authHeaders });
+      if (!mineRes.ok) {
+        setError(mineRes.status === 401 ? "Your session expired -- please log out and back in." : "Couldn't load your AI.");
+        return;
+      }
+      const mineData = await mineRes.json();
+      setMyAi(mineData.ai);
+      setWinsRequired(mineData.wins_required);
+      setMyWins(mineData.wins);
 
-    const lobbyRes = await fetch(`${API_BASE}/personal-ai/lobby`, { headers: authHeaders });
-    const lobbyData = await lobbyRes.json();
-    setLobby(lobbyData.ais);
+      const lobbyRes = await fetch(`${API_BASE}/personal-ai/lobby`, { headers: authHeaders });
+      if (!lobbyRes.ok) {
+        setError(lobbyRes.status === 401 ? "Your session expired -- please log out and back in." : "Couldn't load the lobby.");
+        return;
+      }
+      const lobbyData = await lobbyRes.json();
+      setLobby(lobbyData.ais);
+      setError(null);
+    } catch {
+      setError("Couldn't reach the server. Is it running?");
+    }
   }
 
   useEffect(() => {

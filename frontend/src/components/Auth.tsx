@@ -15,11 +15,14 @@ export default function Auth() {
     setError(null);
     setLoading(true);
 
-    const { error } =
-      mode === "signIn"
-        ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password });
+    if (mode === "signIn") {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      setLoading(false);
+      if (error) setError(error.message);
+      return;
+    }
 
+    const { data, error } = await supabase.auth.signUp({ email, password });
     setLoading(false);
 
     if (error) {
@@ -27,9 +30,12 @@ export default function Auth() {
       return;
     }
 
-    if (mode === "signUp") {
+    if (!data.session) {
+      // No session came back -- this project still requires email confirmation.
       setCheckEmail(true);
     }
+    // If a session DID come back (confirmation disabled), we do nothing here --
+    // the auth-state listener in App.tsx picks it up and routes into the app.
   }
 
   if (checkEmail) {
