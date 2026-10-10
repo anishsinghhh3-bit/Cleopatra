@@ -3,11 +3,14 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     tailwindcss(),
     VitePWA({
+      // A native app ships its own files, so a service worker would only
+      // risk serving stale cached code. Off for the Android build only.
+      disable: mode === "android",
       registerType: "autoUpdate",
       manifest: {
         name: "Cleopatra Chess",
@@ -25,4 +28,4 @@ export default defineConfig({
       },
     }),
   ],
-});
+}));

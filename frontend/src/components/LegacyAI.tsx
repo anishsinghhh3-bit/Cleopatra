@@ -1,7 +1,6 @@
 ﻿import { useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-
-const API_BASE = "http://127.0.0.1:8000";
+import { API_BASE } from "../lib/config";
 
 interface PersonalAI {
   id: string;
@@ -69,39 +68,49 @@ export default function LegacyAI({ session, visible, onBack, onChallenge }: Lega
   async function handleCreate() {
     setBusy(true);
     setError(null);
-    const res = await fetch(`${API_BASE}/personal-ai/create`, { method: "POST", headers: authHeaders });
-    const data = await res.json();
-    setBusy(false);
-    if (!res.ok) {
-      setError(data.detail ?? "Couldn't create your AI.");
-      return;
+    try {
+      const res = await fetch(`${API_BASE}/personal-ai/create`, { method: "POST", headers: authHeaders });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail ?? "Couldn't create your AI.");
+        return;
+      }
+      refresh();
+    } catch {
+      setError("Couldn't reach the server. Is it running?");
+    } finally {
+      setBusy(false);
     }
-    refresh();
   }
 
   async function handleRetrain() {
     setBusy(true);
     setError(null);
-    const res = await fetch(`${API_BASE}/personal-ai/retrain`, { method: "POST", headers: authHeaders });
-    const data = await res.json();
-    setBusy(false);
-    if (!res.ok) {
-      setError(data.detail ?? "Couldn't retrain your AI.");
-      return;
+    try {
+      const res = await fetch(`${API_BASE}/personal-ai/retrain`, { method: "POST", headers: authHeaders });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail ?? "Couldn't retrain your AI.");
+        return;
+      }
+      setMyAi(data);
+    } catch {
+      setError("Couldn't reach the server. Is it running?");
+    } finally {
+      setBusy(false);
     }
-    setMyAi(data);
   }
 
   return (
     <div className="min-h-screen bg-ink text-parchment font-sans">
-      <header className="flex items-center justify-between border-b border-brass/20 px-8 py-5">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-brass/20 px-4 py-4 sm:px-8 sm:py-5">
         <h1 className="font-display text-2xl tracking-tight">Legacy AI</h1>
         <button type="button" onClick={onBack} className="text-sm text-brass/70 underline">
           &larr; Back to game
         </button>
       </header>
 
-      <main className="mx-auto max-w-2xl space-y-12 px-8 py-12">
+      <main className="mx-auto max-w-2xl space-y-12 px-4 py-8 sm:px-8 sm:py-12">
         <section>
           <h2 className="font-display text-lg text-verdigris">Your AI</h2>
           {myAi ? (
@@ -147,9 +156,12 @@ export default function LegacyAI({ session, visible, onBack, onChallenge }: Lega
           ) : (
             <ul className="mt-3 space-y-2 text-sm">
               {lobby.map((entry) => (
-                <li key={entry.id} className="flex items-center justify-between border-b border-brass/10 pb-2">
+                <li
+                  key={entry.id}
+                  className="flex flex-wrap items-center justify-between gap-2 border-b border-brass/10 pb-2"
+                >
                   <span>{entry.profiles?.username ?? "Unknown"}'s AI</span>
-                  <span className="flex items-center gap-4">
+                  <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
                     <span className="text-parchment/70">
                       {entry.strength_rating} rated &middot; {entry.bank} coins
                     </span>

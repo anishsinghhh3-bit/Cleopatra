@@ -4,6 +4,7 @@ import Board from "./Board";
 import MatchReportView from "./MatchReportView";
 import type { MatchReport } from "./MatchReportView";
 import { parseFen, getPieceAt } from "../lib/fen";
+import { WS_BASE } from "../lib/config";
 import type { Profile } from "../lib/types";
 
 const STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
@@ -49,7 +50,7 @@ export default function ChallengeGame({ session, aiId, onProfileChange, onBack }
   const pendingHumanMoveRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const ws = new WebSocket(`ws://127.0.0.1:8000/ws/challenge/${aiId}?token=${session.access_token}`);
+    const ws = new WebSocket(`${WS_BASE}/ws/challenge/${aiId}?token=${session.access_token}`);
     wsRef.current = ws;
 
     ws.onmessage = (event) => {
@@ -128,7 +129,7 @@ export default function ChallengeGame({ session, aiId, onProfileChange, onBack }
 
   return (
     <div className="min-h-screen bg-ink text-parchment font-sans">
-      <header className="flex items-center justify-between border-b border-brass/20 px-8 py-5">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-brass/20 px-4 py-4 sm:px-8 sm:py-5">
         <h1 className="font-display text-2xl tracking-tight">
           Challenge {opponentRating ? `\u00b7 ${opponentRating} rated` : ""}
         </h1>
@@ -137,7 +138,7 @@ export default function ChallengeGame({ session, aiId, onProfileChange, onBack }
         </button>
       </header>
 
-      <main className="flex flex-wrap items-start justify-center gap-12 px-8 py-12">
+      <main className="flex flex-wrap items-start justify-center gap-8 px-4 py-8 sm:gap-12 sm:px-8 sm:py-12">
         <div>
           <p
             className={`mb-3 font-display text-lg ${
@@ -156,7 +157,7 @@ export default function ChallengeGame({ session, aiId, onProfileChange, onBack }
           {error && <p className="mt-3 text-sm text-signal">{error}</p>}
         </div>
 
-        <aside className="w-64">
+        <aside className="w-full sm:w-64">
           {challengeResult && (
             <div className="mb-6 border border-brass/30 bg-surface p-4 text-sm">
               <p className="font-display text-base text-verdigris">

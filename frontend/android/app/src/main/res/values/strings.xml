@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Cleopatra</string>
+    <string name="title_activity_main">Cleopatra</string>
+    <string name="package_name">com.cleopatra.chess</string>
+    <string name="custom_url_scheme">com.cleopatra.chess</string>
+</resources>

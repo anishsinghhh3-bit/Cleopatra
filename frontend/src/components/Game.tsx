@@ -6,6 +6,7 @@ import type { MatchReport } from "./MatchReportView";
 import { parseFen, getPieceAt } from "../lib/fen";
 import { supabase } from "../lib/supabase";
 import { leagueForRating, formatLeague } from "../lib/league";
+import { WS_BASE } from "../lib/config";
 import type { Profile } from "../lib/types";
 
 const STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
@@ -50,7 +51,7 @@ export default function Game({ session, profile, onProfileChange, onNavigateLega
   const pendingHumanMoveRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const ws = new WebSocket(`ws://127.0.0.1:8000/ws/game?token=${session.access_token}`);
+    const ws = new WebSocket(`${WS_BASE}/ws/game?token=${session.access_token}`);
     wsRef.current = ws;
 
     ws.onmessage = (event) => {
@@ -158,9 +159,9 @@ export default function Game({ session, profile, onProfileChange, onNavigateLega
 
   return (
     <div className="min-h-screen bg-ink text-parchment font-sans">
-      <header className="flex items-center justify-between border-b border-brass/20 px-8 py-5">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-brass/20 px-4 py-4 sm:px-8 sm:py-5">
         <h1 className="font-display text-2xl tracking-tight">Cleopatra</h1>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <span className="text-sm text-brass/80">
             {profile
               ? `${formatLeague(leagueForRating(profile.rating + profile.legacy_points))} \u00b7 ${profile.rating} \u00b7 ${profile.coins} coins${profile.badge_ai_slayer ? " \u00b7 \u2694 AI Slayer" : ""}`
@@ -179,7 +180,7 @@ export default function Game({ session, profile, onProfileChange, onNavigateLega
         </div>
       </header>
 
-      <main className="flex flex-wrap items-start justify-center gap-12 px-8 py-12">
+      <main className="flex flex-wrap items-start justify-center gap-8 px-4 py-8 sm:gap-12 sm:px-8 sm:py-12">
         <div>
           <div className="mb-3 flex items-center gap-4">
             <p
@@ -209,7 +210,7 @@ export default function Game({ session, profile, onProfileChange, onNavigateLega
           {error && <p className="mt-3 text-sm text-signal">{error}</p>}
         </div>
 
-        <aside className="w-64">
+        <aside className="w-full sm:w-64">
           {gameResult && (
             <div className="mb-6 border border-brass/30 bg-surface p-4 text-sm">
               <p className="font-display text-base text-verdigris">
@@ -265,4 +266,3 @@ export default function Game({ session, profile, onProfileChange, onNavigateLega
     </div>
   );
 }
-

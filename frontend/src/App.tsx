@@ -1,5 +1,7 @@
-﻿import { useEffect, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
+import { Capacitor } from "@capacitor/core";
+import { App as CapacitorApp } from "@capacitor/app";
 import { supabase } from "./lib/supabase";
 import Auth from "./components/Auth";
 import Game from "./components/Game";
@@ -7,20 +9,27 @@ import LegacyAI from "./components/LegacyAI";
 import ChallengeGame from "./components/ChallengeGame";
 import type { Profile } from "./lib/types";
 
+type View = "play" | "legacy" | "challenge";
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<"play" | "legacy" | "challenge">("play");
+  const [view, setView] = useState<View>("play");
   const [challengeAiId, setChallengeAiId] = useState<string | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const viewRef = useRef<View>("play");
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
+    viewRef.current = view;
+  }, [view]);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }: { data: { session: Session | null } }) => {
       setSession(data.session);
       setLoading(false);
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((_event: string, newSession: Session | null) => {
       setSession(newSession);
     });
 
@@ -37,10 +46,31 @@ export default function App() {
       .select("username, rating, coins, legacy_points, badge_ai_slayer")
       .eq("id", session.user.id)
       .single()
-      .then(({ data }) => {
-        if (data) setProfile(data as Profile);
+      .then(({ data }: { data: Profile | null }) => {
+        if (data) setProfile(data);
       });
   }, [session]);
+
+  // Android hardware/gesture Back: step back through our own screens instead
+  // of closing the whole app, and minimise (not quit) from the main screen so
+  // an in-progress game isn't torn down.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    const handle = CapacitorApp.addListener("backButton", () => {
+      if (viewRef.current === "challenge") {
+        setView("legacy");
+      } else if (viewRef.current === "legacy") {
+        setView("play");
+      } else {
+        CapacitorApp.minimizeApp();
+      }
+    });
+
+    return () => {
+      handle.then((h) => h.remove());
+    };
+  }, []);
 
   function handleProfileChange(updates: Partial<Profile>) {
     setProfile((prev) => {
@@ -98,4 +128,3 @@ export default function App() {
     </>
   );
 }
-

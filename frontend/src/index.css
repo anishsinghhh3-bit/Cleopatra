@@ -14,4 +14,14 @@
 
 body {
   margin: 0;
+  background-color: #12181A;
+}
+
+/* Keep content clear of the status bar, notch, and gesture bar on phones.
+   On desktop these resolve to 0, so nothing changes there. */
+#root {
+  padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  padding-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+  padding-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  padding-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
 }
