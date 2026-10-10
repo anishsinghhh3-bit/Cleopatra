@@ -122,7 +122,7 @@ def _outcome_result(board: chess.Board) -> str | None:
 
 def _state_payload(board: chess.Board) -> dict:
     return {
-        "fen": board.fen(),
+        "fen": board.fen(), "moves": [m.uci() for m in board.move_stack],
         "turn": "white" if board.turn else "black",
         "game_over": board.is_game_over(),
         "result": _outcome_result(board),
@@ -406,4 +406,5 @@ async def play_challenge(websocket: WebSocket, ai_id: str):
 
     except WebSocketDisconnect:
         pass
+
 

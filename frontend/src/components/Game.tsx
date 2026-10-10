@@ -7,15 +7,15 @@ import { parseFen, getPieceAt } from "../lib/fen";
 import { supabase } from "../lib/supabase";
 import { leagueForRating, formatLeague } from "../lib/league";
 import { WS_BASE } from "../lib/config";
+import { connectWithRetry } from "../lib/socket";
+import type { SocketController, SocketStatus } from "../lib/socket";
+import { createResyncer } from "../lib/resync";
+import { pairMoves, awaitingOpponent } from "../lib/moves";
+import type { MoveRound } from "../lib/moves";
 import type { Profile } from "../lib/types";
 
 const STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const COUNCIL = ["Tal", "Fischer", "Botvinnik"];
-
-interface MoveRound {
-  human: string;
-  cleopatra: string | null;
-}
 
 interface LastMove {
   from: string;
@@ -47,16 +47,21 @@ export default function Game({ session, profile, onProfileChange, onNavigateLega
   const [gameOver, setGameOver] = useState(false);
   const [matchReport, setMatchReport] = useState<MatchReport | null>(null);
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const pendingHumanMoveRef = useRef<string | null>(null);
+  const [status, setStatus] = useState<SocketStatus>("connecting");
+  const socketRef = useRef<SocketController | null>(null);
+  const gameOverRef = useRef(false);
+  const tokenRef = useRef(session.access_token);
+
+  // Keep the freshest login token handy: the connection itself stays up when
+  // the token refreshes, and any later reconnect uses the new one.
+  useEffect(() => {
+    tokenRef.current = session.access_token;
+  }, [session.access_token]);
 
   useEffect(() => {
-    const ws = new WebSocket(`${WS_BASE}/ws/game?token=${session.access_token}`);
-    wsRef.current = ws;
+    const resyncer = createResyncer(() => socketRef.current?.reconnect());
 
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-
+    function handleMessage(data: any) {
       if (data.type === "error") {
         setError(data.message);
         setThinking(false);
@@ -67,6 +72,15 @@ export default function Game({ session, profile, onProfileChange, onNavigateLega
       setError(null);
       setFen(data.fen);
       setGameOver(data.game_over);
+      gameOverRef.current = data.game_over;
+
+      // The server is the source of truth for the move list, so it stays
+      // correct across reconnects, remounts, and "Play again".
+      if (Array.isArray(data.moves)) {
+        setMoves(pairMoves(data.moves));
+        const latest: string | undefined = data.moves[data.moves.length - 1];
+        setLastMove(latest ? { from: latest.slice(0, 2), to: latest.slice(2, 4) } : null);
+      }
 
       if (data.match_report) {
         setMatchReport(data.match_report);
@@ -78,45 +92,58 @@ export default function Game({ session, profile, onProfileChange, onNavigateLega
       }
 
       if (data.type === "state") {
-        return;
-      }
-
-      if (data.type === "human_move_applied") {
-        setLastMove({ from: data.move.slice(0, 2), to: data.move.slice(2, 4) });
-        if (data.game_over) {
-          setMoves((prev) => [...prev, { human: data.move, cleopatra: null }]);
-          setThinking(false);
+        if (!data.game_over) {
+          // A fresh game has replaced any finished one.
+          setMatchReport(null);
+          setGameResult(null);
+        }
+        if (awaitingOpponent(data)) {
+          // We (re)connected while Cleopatra's move was still being worked
+          // out; check back until it lands.
+          setThinking(true);
+          resyncer.schedule(() => {
+            setThinking(false);
+            setError("Cleopatra isn't answering. Check that the server is running, then reopen the app.");
+          });
         } else {
-          pendingHumanMoveRef.current = data.move;
+          setThinking(false);
+          resyncer.reset();
         }
         return;
       }
 
+      if (data.type === "human_move_applied") {
+        setThinking(!data.game_over);
+        return;
+      }
+
       if (data.type === "cleopatra_move") {
-        setLastMove({ from: data.move.slice(0, 2), to: data.move.slice(2, 4) });
-        setMoves((prev) => [...prev, { human: pendingHumanMoveRef.current ?? "", cleopatra: data.move }]);
-        pendingHumanMoveRef.current = null;
         setThinking(false);
+        resyncer.reset();
       }
-    };
+    }
 
-    ws.onerror = () => {
-      setError("Couldn't reach the server. Is it running?");
-    };
-
-    ws.onclose = (event) => {
-      if (event.code === 4401) {
-        setError("Your session expired. Please log in again.");
-      }
-    };
+    const controller = connectWithRetry(
+      () => `${WS_BASE}/ws/game?token=${tokenRef.current}`,
+      {
+        onMessage: handleMessage,
+        onStatus: setStatus,
+        onFatalClose: (code) => {
+          if (code === 4401) setError("Your session expired. Please log in again.");
+        },
+      },
+      { shouldRetry: () => !gameOverRef.current }
+    );
+    socketRef.current = controller;
 
     return () => {
-      ws.close();
+      resyncer.cancel();
+      controller.close();
     };
-  }, [session.access_token]);
+  }, []);
 
   function handleSquareClick(square: string) {
-    if (thinking || gameOver) return;
+    if (thinking || gameOver || status !== "open") return;
 
     const grid = parseFen(fen);
 
@@ -140,19 +167,27 @@ export default function Game({ session, profile, onProfileChange, onNavigateLega
       uci += "q";
     }
 
-    wsRef.current?.send(JSON.stringify({ type: "move", uci }));
     setSelected(null);
+    const sent = socketRef.current?.send({ type: "move", uci }) ?? false;
+    if (!sent) {
+      setError("Not connected yet. Try again in a moment.");
+      return;
+    }
     setThinking(true);
   }
 
   function handleNewGame() {
-    wsRef.current?.send(JSON.stringify({ type: "new_game" }));
     setMoves([]);
     setMatchReport(null);
     setGameResult(null);
     setLastMove(null);
     setSelected(null);
     setError(null);
+    gameOverRef.current = false;
+    // If the connection already dropped after the game ended, reconnecting
+    // is enough: the server starts a fresh game for a finished one.
+    const sent = socketRef.current?.send({ type: "new_game" }) ?? false;
+    if (!sent) socketRef.current?.reconnect();
   }
 
   const statusText = gameOver ? "Game over." : thinking ? "Cleopatra is thinking\u2026" : "Your move.";
@@ -205,8 +240,11 @@ export default function Game({ session, profile, onProfileChange, onNavigateLega
             selectedSquare={selected}
             lastMove={lastMove}
             onSquareClick={handleSquareClick}
-            disabled={thinking}
+            disabled={thinking || status !== "open"}
           />
+          {status === "reconnecting" && !thinking && (
+            <p className="mt-3 text-sm text-brass">Connection lost. Reconnecting&hellip;</p>
+          )}
           {error && <p className="mt-3 text-sm text-signal">{error}</p>}
         </div>
 
@@ -253,7 +291,7 @@ export default function Game({ session, profile, onProfileChange, onNavigateLega
                       <li key={i} className="flex gap-3">
                         <span className="text-brass/50">{i + 1}.</span>
                         <span>{round.human}</span>
-                        <span className="text-parchment">{round.cleopatra ?? ""}</span>
+                        <span className="text-parchment">{round.reply ?? ""}</span>
                       </li>
                     ))}
                   </ol>

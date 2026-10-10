@@ -5,14 +5,14 @@ import MatchReportView from "./MatchReportView";
 import type { MatchReport } from "./MatchReportView";
 import { parseFen, getPieceAt } from "../lib/fen";
 import { WS_BASE } from "../lib/config";
+import { connectWithRetry } from "../lib/socket";
+import type { SocketController, SocketStatus } from "../lib/socket";
+import { createResyncer } from "../lib/resync";
+import { pairMoves, awaitingOpponent } from "../lib/moves";
+import type { MoveRound } from "../lib/moves";
 import type { Profile } from "../lib/types";
 
 const STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-
-interface MoveRound {
-  human: string;
-  opponent: string | null;
-}
 
 interface LastMove {
   from: string;
@@ -46,16 +46,18 @@ export default function ChallengeGame({ session, aiId, onProfileChange, onBack }
   const [opponentRating, setOpponentRating] = useState<number | null>(null);
   const [matchReport, setMatchReport] = useState<MatchReport | null>(null);
   const [challengeResult, setChallengeResult] = useState<ChallengeResult | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const pendingHumanMoveRef = useRef<string | null>(null);
+  const [status, setStatus] = useState<SocketStatus>("connecting");
+  const socketRef = useRef<SocketController | null>(null);
+  const tokenRef = useRef(session.access_token);
 
   useEffect(() => {
-    const ws = new WebSocket(`${WS_BASE}/ws/challenge/${aiId}?token=${session.access_token}`);
-    wsRef.current = ws;
+    tokenRef.current = session.access_token;
+  }, [session.access_token]);
 
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
+  useEffect(() => {
+    const resyncer = createResyncer(() => socketRef.current?.reconnect());
 
+    function handleMessage(data: any) {
       if (data.type === "error") {
         setError(data.message);
         setThinking(false);
@@ -66,7 +68,15 @@ export default function ChallengeGame({ session, aiId, onProfileChange, onBack }
       if (data.fen) setFen(data.fen);
       if (data.game_over !== undefined) setGameOver(data.game_over);
       if (data.opponent_rating !== undefined) setOpponentRating(data.opponent_rating);
+
+      if (Array.isArray(data.moves)) {
+        setMoves(pairMoves(data.moves));
+        const latest: string | undefined = data.moves[data.moves.length - 1];
+        setLastMove(latest ? { from: latest.slice(0, 2), to: latest.slice(2, 4) } : null);
+      }
+
       if (data.match_report) setMatchReport(data.match_report);
+
       if (data.challenge_result) {
         setChallengeResult(data.challenge_result);
         onProfileChange({
@@ -75,32 +85,57 @@ export default function ChallengeGame({ session, aiId, onProfileChange, onBack }
         });
       }
 
-      if (data.type === "human_move_applied") {
-        setLastMove({ from: data.move.slice(0, 2), to: data.move.slice(2, 4) });
-        if (data.game_over) {
-          setMoves((prev) => [...prev, { human: data.move, opponent: null }]);
-          setThinking(false);
+      if (data.type === "state") {
+        if (awaitingOpponent(data)) {
+          // Entered while the opponent's move was still being worked out;
+          // check back until it lands.
+          setThinking(true);
+          resyncer.schedule(() => {
+            setThinking(false);
+            setError("The opponent isn't answering. Go back and re-enter this challenge from the Lobby.");
+          });
         } else {
-          pendingHumanMoveRef.current = data.move;
+          setThinking(false);
+          resyncer.reset();
         }
         return;
       }
 
-      if (data.type === "opponent_move") {
-        setLastMove({ from: data.move.slice(0, 2), to: data.move.slice(2, 4) });
-        setMoves((prev) => [...prev, { human: pendingHumanMoveRef.current ?? "", opponent: data.move }]);
-        pendingHumanMoveRef.current = null;
-        setThinking(false);
+      if (data.type === "human_move_applied") {
+        setThinking(!data.game_over);
+        return;
       }
+
+      if (data.type === "opponent_move") {
+        setThinking(false);
+        resyncer.reset();
+      }
+    }
+
+    // No automatic retry here on purpose: re-joining a challenge is a
+    // deliberate action (it can involve the stake), so if the connection
+    // drops we tell the player and let them re-enter from the Lobby.
+    const controller = connectWithRetry(
+      () => `${WS_BASE}/ws/challenge/${aiId}?token=${tokenRef.current}`,
+      {
+        onMessage: handleMessage,
+        onStatus: setStatus,
+        onFatalClose: (code) => {
+          if (code === 4401) setError("Your session expired. Please log in again.");
+        },
+      },
+      { shouldRetry: () => false }
+    );
+    socketRef.current = controller;
+
+    return () => {
+      resyncer.cancel();
+      controller.close();
     };
-
-    ws.onerror = () => setError("Couldn't reach the server. Is it running?");
-
-    return () => ws.close();
-  }, [aiId, session.access_token]);
+  }, [aiId]);
 
   function handleSquareClick(square: string) {
-    if (thinking || gameOver) return;
+    if (thinking || gameOver || status !== "open") return;
 
     const grid = parseFen(fen);
 
@@ -120,8 +155,12 @@ export default function ChallengeGame({ session, aiId, onProfileChange, onBack }
     const reachesBackRank = square[1] === "8" || square[1] === "1";
     if (movingPiece?.type === "p" && reachesBackRank) uci += "q";
 
-    wsRef.current?.send(JSON.stringify({ type: "move", uci }));
     setSelected(null);
+    const sent = socketRef.current?.send({ type: "move", uci }) ?? false;
+    if (!sent) {
+      setError("Not connected. Go back and re-enter this challenge from the Lobby.");
+      return;
+    }
     setThinking(true);
   }
 
@@ -152,8 +191,13 @@ export default function ChallengeGame({ session, aiId, onProfileChange, onBack }
             selectedSquare={selected}
             lastMove={lastMove}
             onSquareClick={handleSquareClick}
-            disabled={thinking}
+            disabled={thinking || status !== "open"}
           />
+          {status === "closed" && !gameOver && !error && (
+            <p className="mt-3 text-sm text-signal">
+              Connection lost. Tap Back, then re-enter this challenge from the Lobby to resume it.
+            </p>
+          )}
           {error && <p className="mt-3 text-sm text-signal">{error}</p>}
         </div>
 
@@ -191,7 +235,7 @@ export default function ChallengeGame({ session, aiId, onProfileChange, onBack }
                     <li key={i} className="flex gap-3">
                       <span className="text-brass/50">{i + 1}.</span>
                       <span>{round.human}</span>
-                      <span className="text-parchment">{round.opponent ?? ""}</span>
+                      <span className="text-parchment">{round.reply ?? ""}</span>
                     </li>
                   ))}
                 </ol>

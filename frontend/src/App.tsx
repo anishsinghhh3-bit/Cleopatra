@@ -16,6 +16,9 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<View>("play");
   const [challengeAiId, setChallengeAiId] = useState<string | null>(null);
+  // Bumped on every "Challenge" tap so each attempt gets a fresh screen and
+  // a fresh connection (a stale one could be stuck on an old error).
+  const [challengeKey, setChallengeKey] = useState(0);
   const [profile, setProfile] = useState<Profile | null>(null);
   const viewRef = useRef<View>("play");
 
@@ -110,6 +113,7 @@ export default function App() {
           onBack={() => setView("play")}
           onChallenge={(aiId) => {
             setChallengeAiId(aiId);
+            setChallengeKey((k) => k + 1);
             setView("challenge");
           }}
         />
@@ -117,7 +121,7 @@ export default function App() {
       {challengeAiId && (
         <div style={{ display: view === "challenge" ? "block" : "none" }}>
           <ChallengeGame
-            key={challengeAiId}
+            key={challengeKey}
             session={session}
             aiId={challengeAiId}
             onProfileChange={handleProfileChange}
