@@ -41,3 +41,14 @@ def update_profile(user_id: str, **fields) -> dict:
     response.raise_for_status()
     rows = response.json()
     return rows[0] if rows else {}
+
+
+def ping_database() -> None:
+    """Cheap read used by the deep health check."""
+    response = requests.get(
+        f"{SUPABASE_URL}/rest/v1/profiles",
+        headers=HEADERS,
+        params={"select": "id", "limit": "1"},
+        timeout=10,
+    )
+    response.raise_for_status()

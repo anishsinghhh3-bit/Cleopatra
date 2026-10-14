@@ -1,11 +1,14 @@
-﻿import pathlib
+﻿import os
+import pathlib
 
 import chess
 import chess.engine
 
 CORE_DIR = pathlib.Path(__file__).resolve().parent
 BACKEND_DIR = CORE_DIR.parent.parent
-ENGINE_PATH = str(BACKEND_DIR / "engine" / "stockfish.exe")
+# On the deployed Linux server the engine path comes from the STOCKFISH_PATH
+# environment variable; locally it falls back to the Windows download.
+ENGINE_PATH = os.environ.get("STOCKFISH_PATH") or str(BACKEND_DIR / "engine" / "stockfish.exe")
 
 DEFAULT_ELO = 2800
 MIN_SAFE_ELO = 1350

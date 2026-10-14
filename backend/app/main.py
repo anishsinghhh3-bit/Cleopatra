@@ -12,7 +12,7 @@ from app.core.game_manager import get_or_create_game, game_exists, reset_game
 from app.core.auth import verify_token
 from app.core.match_report import generate_match_report
 from app.core.coach import add_commentary
-from app.core.profiles import get_profile, update_profile
+from app.core.profiles import get_profile, update_profile, ping_database
 from app.core.rating import update_rating, coins_for_result, legacy_points_delta
 from app.core.locks import get_user_lock
 from app.core.personal_ai import (
@@ -29,11 +29,22 @@ from app.core.personal_ai import (
     RATING_BAND,
 )
 
+import os
+
+# Extra allowed browser origins (e.g. the deployed website), comma-separated,
+# set via the EXTRA_ORIGINS environment variable on the server.
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:4173",
+    "http://localhost",
+    "https://localhost",
+] + [o.strip() for o in os.environ.get("EXTRA_ORIGINS", "").split(",") if o.strip()]
+
 app = FastAPI(title="Cleopatra API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:4173", "http://localhost", "https://localhost"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -51,6 +62,17 @@ def get_current_user(authorization: str = Header(None)) -> dict:
 
 class FenRequest(BaseModel):
     fen: str = chess.STARTING_FEN
+
+
+@app.get("/health/deep")
+def deep_health_check():
+    """Touches the database as well, so uptime pings keep both the server and
+    the Supabase free tier from going idle."""
+    try:
+        ping_database()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Database unreachable")
+    return {"status": "ok", "database": "ok"}
 
 
 @app.get("/health")
@@ -406,5 +428,6 @@ async def play_challenge(websocket: WebSocket, ai_id: str):
 
     except WebSocketDisconnect:
         pass
+
 
 
