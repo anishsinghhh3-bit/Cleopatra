@@ -1,5 +1,7 @@
 ﻿# Cleopatra
 
+**Live demo:** https://cleopatra-mocha.vercel.app
+
 A chess platform built around one flagship AI opponent — human-elite strength (~2800), not engine-crushing — with a real personality instead of a difficulty slider.
 
 ## What makes Cleopatra different
@@ -25,3 +27,4 @@ A chess platform built around one flagship AI opponent — human-elite strength 
 ## Status
 
 Actively in development, running locally. Deployment to a public URL and native Android packaging (via Capacitor) are the next milestones.
+
